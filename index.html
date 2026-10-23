@@ -1,0 +1,1597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bishop Hall Jubilee School - 3D Interactive Campus Map</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background-color: #0f172a;
+            user-select: none;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        #labels-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 2;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .poi-marker {
+            position: absolute;
+            transform: translate(-50%, -100%);
+            pointer-events: auto;
+            cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45));
+        }
+
+        .poi-marker:hover {
+            transform: translate(-50%, -108%) scale(1.06);
+            z-index: 50 !important;
+        }
+
+        .poi-pin {
+            width: 34px;
+            height: 34px;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid rgba(255, 255, 255, 0.92);
+            box-shadow: inset 0 2px 4px rgba(255,255,255,0.35);
+            flex-shrink: 0;
+        }
+
+        .poi-pin i {
+            transform: rotate(45deg);
+            color: white;
+            font-size: 13px;
+        }
+
+        .poi-text {
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            padding: 4px 10px;
+            border-radius: 8px;
+            color: #f8fafc;
+            white-space: nowrap;
+            line-height: 1.25;
+        }
+
+        .poi-title-en {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+        }
+
+        .poi-title-zh {
+            font-size: 11px;
+            font-weight: 500;
+            color: #cbd5e1;
+        }
+
+        .road-label {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            color: rgba(255, 255, 255, 0.92);
+            font-weight: 700;
+            font-size: 13px;
+            letter-spacing: 0.06em;
+            text-shadow: 0 2px 6px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,1);
+            background: rgba(15, 23, 42, 0.55);
+            padding: 2px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.12);
+            white-space: nowrap;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.78);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        .floor-btn {
+            width: 44px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 13px;
+            color: #cbd5e1;
+            border-radius: 8px;
+            transition: all 0.18s ease;
+            border: 1px solid transparent;
+        }
+
+        .floor-btn:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .floor-btn.active {
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.16);
+            border-color: rgba(56, 189, 248, 0.65);
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D WebGL Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- Dynamic Projected 3D Labels Overlay -->
+    <div id="labels-container"></div>
+
+    <!-- Top Left Menu & Campus Directory -->
+    <div class="fixed top-4 left-4 z-30 flex flex-col gap-3 max-w-xs w-full pointer-events-none">
+        <div class="flex items-center gap-2 pointer-events-auto">
+            <button id="btn-toggle-menu" class="glass-panel w-11 h-11 rounded-xl flex items-center justify-center text-slate-200 hover:text-white hover:bg-slate-800/80 transition" title="Toggle Campus Directory">
+                <i class="fa-solid fa-bars text-base"></i>
+            </button>
+            <div class="glass-panel px-4 py-2 rounded-xl flex items-center gap-3">
+                <div class="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></div>
+                <div>
+                    <div class="text-xs font-bold text-white tracking-tight">Bishop Hall Jubilee School</div>
+                    <div class="text-[11px] text-slate-300 font-medium">何明華會督銀禧中學 · 3D Digital Twin</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Collapsible Directory Panel -->
+        <div id="directory-panel" class="glass-panel rounded-2xl p-3.5 text-slate-200 pointer-events-auto transition-all duration-300 origin-top-left">
+            <div class="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-700/70">
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Campus Locations 校園設施</span>
+                <button id="btn-reset-cam" class="text-[11px] text-sky-400 hover:text-sky-300 font-medium flex items-center gap-1">
+                    <i class="fa-solid fa-rotate-left"></i> Reset View
+                </button>
+            </div>
+
+            <!-- Search Input -->
+            <div class="relative mb-2.5">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                <input id="search-input" type="text" placeholder="Filter facilities (e.g. Hall, Handball)..." class="w-full bg-slate-900/75 border border-slate-700/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-sky-400">
+            </div>
+
+            <div id="poi-list" class="flex flex-col gap-1 max-h-60 overflow-y-auto pr-1"></div>
+
+            <!-- Match Status Pill -->
+            <div class="mt-3 pt-2.5 border-t border-slate-700/70 flex items-center justify-between text-[11px]">
+                <span class="text-slate-300 flex items-center gap-1.5">
+                    <i class="fa-solid fa-futbol text-yellow-400"></i> Live Handball Match (20 Players)
+                </span>
+                <div class="flex items-center gap-1.5">
+                    <span class="px-1.5 py-0.5 rounded bg-purple-600/40 border border-purple-400/50 text-purple-200 font-semibold">10 Purple</span>
+                    <span class="text-slate-500">vs</span>
+                    <span class="px-1.5 py-0.5 rounded bg-red-600/40 border border-red-400/50 text-red-200 font-semibold">10 Red</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right-side Controls: View Modes & Interactive Floor Slicer -->
+    <div class="fixed right-4 top-4 z-30 flex flex-col items-center gap-3 pointer-events-auto">
+        <!-- Quick Utility Bar -->
+        <div class="glass-panel p-1.5 rounded-2xl flex flex-col gap-1">
+            <button id="btn-toggle-wireframe" class="w-10 h-9 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 transition" title="Toggle Holographic Floor Stack">
+                <i class="fa-solid fa-layer-group text-sm text-sky-400"></i>
+            </button>
+            <button id="btn-toggle-labels" class="w-10 h-9 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 transition" title="Toggle 3D Labels">
+                <i class="fa-solid fa-list-ul text-sm"></i>
+            </button>
+            <button id="btn-focus-search" class="w-10 h-9 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 transition" title="Search Facility">
+                <i class="fa-solid fa-magnifying-glass text-sm"></i>
+            </button>
+        </div>
+
+        <!-- Floor Selector Bar (1F to 6F + ALL) -->
+        <div class="glass-panel p-1.5 rounded-2xl flex flex-col items-center gap-1">
+            <button data-floor="ALL" class="floor-btn text-[11px] font-bold">ALL</button>
+            <div class="w-6 h-[1px] bg-slate-700/80 my-0.5"></div>
+            <button data-floor="1" class="floor-btn">1F</button>
+            <button data-floor="2" class="floor-btn active">2F</button>
+            <button data-floor="3" class="floor-btn">3F</button>
+            <button data-floor="4" class="floor-btn">4F</button>
+            <button data-floor="5" class="floor-btn">5F</button>
+            <button data-floor="6" class="floor-btn">6F</button>
+            <button id="btn-cycle-floor" class="w-10 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white transition" title="Next Floor">
+                <i class="fa-solid fa-chevron-up text-xs"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Bottom Left Info Card for Selected Facility -->
+    <div id="info-card" class="fixed bottom-4 left-4 z-30 glass-panel rounded-2xl p-4 max-w-sm w-full text-slate-100 pointer-events-auto transition-all duration-300 translate-y-0 opacity-100">
+        <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+                <div id="info-icon-box" class="w-9 h-9 rounded-xl bg-orange-500 flex items-center justify-center text-white shadow-md">
+                    <i id="info-icon" class="fa-solid fa-futbol"></i>
+                </div>
+                <div>
+                    <div id="info-title-en" class="text-sm font-bold leading-tight">Courtyard, Basketball & Handball Courts</div>
+                    <div id="info-title-zh" class="text-xs text-slate-300 font-medium">操場、籃球及手球場</div>
+                </div>
+            </div>
+            <span id="info-badge" class="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 border border-sky-400/30 whitespace-nowrap">
+                Live Handball Match
+            </span>
+        </div>
+        <p id="info-desc" class="text-xs text-slate-300 mt-2.5 leading-relaxed">
+            Central green sports quadrangle featuring twin basketball courts and an overlapping yellow-lined handball court, currently hosting a 20-student handball match between the Purple and Red teams.
+        </p>
+        <div class="mt-3 pt-2.5 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400">
+            <span><i class="fa-solid fa-location-dot text-sky-400 mr-1"></i> 2C Oxford Road, Kowloon Tong</span>
+            <span id="slice-indicator" class="text-sky-300 font-medium">Floor View: Full Campus</span>
+        </div>
+    </div>
+
+    <!-- Bottom Right Lighting / Sun Angle Toggle -->
+    <div class="fixed bottom-4 right-4 z-30 pointer-events-auto">
+        <button id="btn-sun-angle" class="glass-panel w-11 h-11 rounded-xl flex items-center justify-center text-amber-300 hover:text-amber-200 hover:bg-slate-800/80 transition" title="Change Sun & Lighting Angle">
+            <i class="fa-solid fa-sun text-base"></i>
+        </button>
+    </div>
+
+    <script>
+        // ============================================================================
+        // 1. SCENE, CAMERA & RENDERER SETUP
+        // ============================================================================
+        const container = document.getElementById('canvas-container');
+        const labelsContainer = document.getElementById('labels-container');
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xcbd5e1);
+        scene.fog = new THREE.FogExp2(0xcbd5e1, 0.0018);
+
+        const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 1, 1000);
+        camera.position.set(-48, 82, 96);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.localClippingEnabled = true;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.target.set(3, 8, 5);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.maxPolarAngle = Math.PI / 2 - 0.04;
+        controls.minDistance = 28;
+        controls.maxDistance = 240;
+
+        // Global horizontal clipping plane for floor-by-floor cross-section inspection
+        const floorClipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 60);
+        let targetClipConstant = 60;
+
+        // ============================================================================
+        // 2. LIGHTING SYSTEM
+        // ============================================================================
+        const hemiLight = new THREE.HemisphereLight(0xf8fafc, 0x64748b, 0.72);
+        hemiLight.position.set(0, 120, 0);
+        scene.add(hemiLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfffbeb, 1.05);
+        dirLight.position.set(-65, 110, 75);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 20;
+        dirLight.shadow.camera.far = 260;
+        const d = 80;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.bias = -0.0005;
+        scene.add(dirLight);
+
+        const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.32);
+        fillLight.position.set(80, 50, -60);
+        scene.add(fillLight);
+
+        // ============================================================================
+        // 3. PROCEDURAL ARCHITECTURAL TEXTURES (50% REDUCED WINDOW DENSITY)
+        // ============================================================================
+        function createFacadeTexture(options = {}) {
+            const {
+                baseColor = '#eceef1',
+                windowColor = '#293a4c',
+                frameColor = '#cbd5e1',
+                cols = 4, // 50% fewer windows horizontally
+                rows = 6,
+                hasRedTrim = false,
+                isCorridor = false,
+                balconyTint = '#8b7355'
+            } = options;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            // Painted Hong Kong institutional concrete base
+            ctx.fillStyle = baseColor;
+            ctx.fillRect(0, 0, 512, 512);
+
+            // Subtle concrete weathering lines
+            ctx.fillStyle = 'rgba(0,0,0,0.025)';
+            for (let i = 0; i < 60; i++) {
+                ctx.fillRect(0, Math.random() * 512, 512, 1 + Math.random() * 2);
+            }
+
+            const rowH = 512 / rows;
+            const colW = 512 / cols;
+
+            for (let r = 0; r < rows; r++) {
+                const y = r * rowH;
+
+                // Concrete floor slab band
+                ctx.fillStyle = '#dfe3e8';
+                ctx.fillRect(0, y, 512, rowH * 0.22);
+
+                if (hasRedTrim && r === 1) {
+                    ctx.fillStyle = '#b91c1c';
+                    ctx.fillRect(0, y + rowH * 0.16, 512, 4);
+                }
+
+                if (isCorridor) {
+                    // Open-air school corridor gallery with parapet wall
+                    ctx.fillStyle = '#1e293b';
+                    ctx.fillRect(10, y + rowH * 0.24, 492, rowH * 0.36);
+
+                    // Parapet balcony wall
+                    ctx.fillStyle = '#f1f5f9';
+                    ctx.fillRect(0, y + rowH * 0.60, 512, rowH * 0.38);
+                    ctx.fillStyle = balconyTint;
+                    ctx.fillRect(0, y + rowH * 0.62, 512, 5);
+
+                    // Structural columns along corridor
+                    ctx.fillStyle = baseColor;
+                    for (let c = 0; c <= cols; c++) {
+                        ctx.fillRect(c * colW - 8, y, 16, rowH);
+                    }
+                } else {
+                    // Standard facade with 50% reduced window area (wider concrete piers)
+                    for (let c = 0; c < cols; c++) {
+                        const x = c * colW;
+                        const padX = colW * 0.29;
+                        const padY = rowH * 0.28;
+                        const w = colW - padX * 2;
+                        const h = rowH - padY * 1.65;
+
+                        // Aluminum window frame
+                        ctx.fillStyle = frameColor;
+                        ctx.fillRect(x + padX - 2, y + padY - 2, w + 4, h + 4);
+
+                        // Tinted glass pane
+                        ctx.fillStyle = windowColor;
+                        ctx.fillRect(x + padX, y + padY, w, h);
+
+                        // Subtle glass reflection & mullions
+                        ctx.fillStyle = 'rgba(148, 163, 184, 0.25)';
+                        ctx.fillRect(x + padX + 2, y + padY + 2, w * 0.35, h - 4);
+
+                        ctx.strokeStyle = frameColor;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(x + padX + w * 0.5, y + padY, 1, h);
+                    }
+                }
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.anisotropy = 8;
+            return tex;
+        }
+
+        // Twin Basketball Courts + Overlapping Yellow-Lined Handball Court Texture
+        function createSportsCourtyardTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+
+            // Acrylic sports ground base green
+            ctx.fillStyle = '#3f6f63';
+            ctx.fillRect(0, 0, 1024, 1024);
+
+            // Subtle court wear & texture
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.02)';
+            for (let i = 0; i < 120; i++) {
+                ctx.fillRect(Math.random() * 1024, Math.random() * 1024, 40, 40);
+            }
+
+            function drawSingleBasketballCourt(ox, oy, cw, ch) {
+                ctx.save();
+                ctx.fillStyle = '#487f71';
+                ctx.fillRect(ox, oy, cw, ch);
+
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.88)';
+                ctx.lineWidth = 5;
+
+                // Boundary
+                ctx.strokeRect(ox, oy, cw, ch);
+
+                // Midcourt line & circle
+                ctx.beginPath();
+                ctx.moveTo(ox, oy + ch / 2);
+                ctx.lineTo(ox + cw, oy + ch / 2);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(ox + cw / 2, oy + ch / 2, 46, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Top key & 3-point arc
+                const keyW = 92;
+                const keyH = 135;
+                ctx.strokeRect(ox + (cw - keyW) / 2, oy, keyW, keyH);
+                ctx.beginPath();
+                ctx.arc(ox + cw / 2, oy + keyH, keyW / 2, 0, Math.PI);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(ox + cw / 2, oy + 42, 148, 0.08 * Math.PI, 0.92 * Math.PI);
+                ctx.stroke();
+
+                // Bottom key & 3-point arc
+                ctx.strokeRect(ox + (cw - keyW) / 2, oy + ch - keyH, keyW, keyH);
+                ctx.beginPath();
+                ctx.arc(ox + cw / 2, oy + ch - keyH, keyW / 2, Math.PI, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(ox + cw / 2, oy + ch - 42, 148, 1.08 * Math.PI, 1.92 * Math.PI);
+                ctx.stroke();
+
+                ctx.restore();
+            }
+
+            // Two parallel green basketball courts
+            drawSingleBasketballCourt(110, 120, 375, 780);
+            drawSingleBasketballCourt(535, 120, 375, 780);
+
+            // Overlapping Handball Court in bright yellow lines
+            function drawOverlappingHandballCourt() {
+                ctx.save();
+                const hbX = 95;
+                const hbY = 140;
+                const hbW = 834;
+                const hbH = 740;
+                const midX = hbX + hbW / 2;
+                const midY = hbY + hbH / 2;
+
+                ctx.strokeStyle = '#facc15'; // Yellow lines
+                ctx.fillStyle = '#facc15';
+                ctx.lineWidth = 6;
+                ctx.setLineDash([]);
+
+                // Outer boundary (Sidelines & Goal lines)
+                ctx.strokeRect(hbX, hbY, hbW, hbH);
+
+                // Center line (running horizontally across both basketball courts)
+                ctx.beginPath();
+                ctx.moveTo(hbX, midY);
+                ctx.lineTo(hbX + hbW, midY);
+                ctx.stroke();
+
+                // Center spot
+                ctx.beginPath();
+                ctx.arc(midX, midY, 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Substitution line marks near center line
+                ctx.beginPath();
+                ctx.moveTo(hbX - 10, midY - 75); ctx.lineTo(hbX + 10, midY - 75);
+                ctx.moveTo(hbX - 10, midY + 75); ctx.lineTo(hbX + 10, midY + 75);
+                ctx.stroke();
+
+                const r6 = 155; // 6m Goal Area line radius
+                const r9 = 225; // 9m Free-throw dashed line radius
+                const goalHalfW = 30;
+
+                // --- Top Goal Area (North end) ---
+                ctx.beginPath();
+                ctx.arc(midX - goalHalfW, hbY, r6, 0.5 * Math.PI, Math.PI);
+                ctx.moveTo(midX - goalHalfW, hbY + r6);
+                ctx.lineTo(midX + goalHalfW, hbY + r6);
+                ctx.arc(midX + goalHalfW, hbY, r6, 0, 0.5 * Math.PI);
+                ctx.stroke();
+
+                // 4m Goalkeeper restraining line & 7m Penalty mark (Top)
+                ctx.beginPath();
+                ctx.moveTo(midX - 12, hbY + 95); ctx.lineTo(midX + 12, hbY + 95);
+                ctx.moveTo(midX - 16, hbY + 175); ctx.lineTo(midX + 16, hbY + 175);
+                ctx.stroke();
+
+                // 9m Free-throw line (Top - dashed)
+                ctx.save();
+                ctx.setLineDash([18, 16]);
+                ctx.beginPath();
+                ctx.arc(midX - goalHalfW, hbY, r9, 0.5 * Math.PI, 0.94 * Math.PI);
+                ctx.moveTo(midX - goalHalfW, hbY + r9);
+                ctx.lineTo(midX + goalHalfW, hbY + r9);
+                ctx.arc(midX + goalHalfW, hbY, r9, 0.06 * Math.PI, 0.5 * Math.PI);
+                ctx.stroke();
+                ctx.restore();
+
+                // --- Bottom Goal Area (South end) ---
+                ctx.beginPath();
+                ctx.arc(midX - goalHalfW, hbY + hbH, r6, Math.PI, 1.5 * Math.PI);
+                ctx.moveTo(midX - goalHalfW, hbY + hbH - r6);
+                ctx.lineTo(midX + goalHalfW, hbY + hbH - r6);
+                ctx.arc(midX + goalHalfW, hbY + hbH, r6, 1.5 * Math.PI, 2 * Math.PI);
+                ctx.stroke();
+
+                // 4m Goalkeeper restraining line & 7m Penalty mark (Bottom)
+                ctx.beginPath();
+                ctx.moveTo(midX - 12, hbY + hbH - 95); ctx.lineTo(midX + 12, hbY + hbH - 95);
+                ctx.moveTo(midX - 16, hbY + hbH - 175); ctx.lineTo(midX + 16, hbY + hbH - 175);
+                ctx.stroke();
+
+                // 9m Free-throw line (Bottom - dashed)
+                ctx.save();
+                ctx.setLineDash([18, 16]);
+                ctx.beginPath();
+                ctx.arc(midX - goalHalfW, hbY + hbH, r9, 1.06 * Math.PI, 1.5 * Math.PI);
+                ctx.moveTo(midX - goalHalfW, hbY + hbH - r9);
+                ctx.lineTo(midX + goalHalfW, hbY + hbH - r9);
+                ctx.arc(midX + goalHalfW, hbY + hbH, r9, 1.5 * Math.PI, 1.94 * Math.PI);
+                ctx.stroke();
+                ctx.restore();
+
+                ctx.restore();
+            }
+
+            drawOverlappingHandballCourt();
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.anisotropy = 16;
+            return texture;
+        }
+
+        // ============================================================================
+        // 4. CAMPUS GEOMETRY & ARCHITECTURAL WINGS (NO SURROUNDING BUILDINGS)
+        // ============================================================================
+        const schoolGroup = new THREE.Group();
+        scene.add(schoolGroup);
+
+        const wallWhiteMat = new THREE.MeshStandardMaterial({
+            color: 0xf1f5f9,
+            roughness: 0.75,
+            clippingPlanes: [floorClipPlane],
+            clipShadows: true
+        });
+
+        const roofMat = new THREE.MeshStandardMaterial({
+            color: 0xdbe2ea,
+            roughness: 0.85,
+            clippingPlanes: [floorClipPlane],
+            clipShadows: true
+        });
+
+        const darkTrimMat = new THREE.MeshStandardMaterial({
+            color: 0x475569,
+            roughness: 0.6,
+            clippingPlanes: [floorClipPlane],
+            clipShadows: true
+        });
+
+        const solarPanelMat = new THREE.MeshStandardMaterial({
+            color: 0x1e293b,
+            metalness: 0.55,
+            roughness: 0.25,
+            clippingPlanes: [floorClipPlane],
+            clipShadows: true
+        });
+
+        // Base Campus Parcel & Oxford Road
+        const groundGeo = new THREE.PlaneGeometry(170, 170);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.92 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Campus podium slab
+        const parcelSlab = new THREE.Mesh(
+            new THREE.BoxGeometry(92, 0.2, 86),
+            new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.85 })
+        );
+        parcelSlab.position.set(5, 0.05, 4);
+        parcelSlab.receiveShadow = true;
+        schoolGroup.add(parcelSlab);
+
+        // Cyan architectural perimeter highlight along campus boundary
+        const boundaryPts = [
+            new THREE.Vector3(-34, 0.35, -32),
+            new THREE.Vector3(44, 0.35, -32),
+            new THREE.Vector3(44, 0.35, 38),
+            new THREE.Vector3(-12, 0.35, 38),
+            new THREE.Vector3(-34, 0.35, 16),
+            new THREE.Vector3(-34, 0.35, -32)
+        ];
+        const boundaryGeo = new THREE.BufferGeometry().setFromPoints(boundaryPts);
+        const boundaryLine = new THREE.Line(
+            boundaryGeo,
+            new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85 })
+        );
+        schoolGroup.add(boundaryLine);
+
+        // Oxford Road (牛津道) along the Southwest boundary
+        const roadGroup = new THREE.Group();
+        const roadAsphalt = new THREE.Mesh(
+            new THREE.BoxGeometry(18, 0.14, 115),
+            new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 })
+        );
+        roadAsphalt.ReceiveShadow = true;
+        roadGroup.add(roadAsphalt);
+
+        // Terracotta brick pedestrian sidewalk along school gate
+        const sidewalk = new THREE.Mesh(
+            new THREE.BoxGeometry(4.8, 0.24, 95),
+            new THREE.MeshStandardMaterial({ color: 0x7c4a3a, roughness: 0.85 })
+        );
+        sidewalk.position.set(11.2, 0.05, 0);
+        roadGroup.add(sidewalk);
+
+        // Dashed white road markings
+        for (let z = -48; z <= 48; z += 10) {
+            const stripe = new THREE.Mesh(
+                new THREE.BoxGeometry(0.35, 0.16, 4.5),
+                new THREE.MeshBasicMaterial({ color: 0xe2e8f0 })
+            );
+            stripe.position.set(0, 0.02, z);
+            roadGroup.add(stripe);
+        }
+
+        // Parked miniature cars along Oxford Road
+        const carColors = [0xe2e8f0, 0x1e293b, 0x94a3b8, 0xcbd5e1];
+        for (let i = 0; i < 4; i++) {
+            const car = new THREE.Group();
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(2.1, 1.1, 4.2),
+                new THREE.MeshStandardMaterial({ color: carColors[i], roughness: 0.3 })
+            );
+            body.position.y = 0.7;
+            const cabin = new THREE.Mesh(
+                new THREE.BoxGeometry(1.8, 0.8, 2.2),
+                new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.2 })
+            );
+            cabin.position.set(0, 1.4, -0.2);
+            car.add(body, cabin);
+            car.position.set(6.5, 0.1, -18 + i * 11);
+            roadGroup.add(car);
+        }
+
+        roadGroup.position.set(-38, 0, 10);
+        roadGroup.rotation.y = -0.52;
+        schoolGroup.add(roadGroup);
+
+        // Central Sports Courtyard (Twin Basketball Courts + Overlapping Yellow Handball Court)
+        const courtMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(36, 0.22, 44),
+            new THREE.MeshStandardMaterial({ map: createSportsCourtyardTexture(), roughness: 0.8 })
+        );
+        courtMesh.position.set(4, 0.11, 3);
+        courtMesh.receiveShadow = true;
+        schoolGroup.add(courtMesh);
+
+        // Helper to build multi-story school wings with interior floor slabs (visible when sliced)
+        function createSchoolWing({
+            x, z, width, depth, height, rotY = 0,
+            cols = 4, rows = 6, hasRedTrim = false, isCorridor = false,
+            addParapet = true
+        }) {
+            const wingGroup = new THREE.Group();
+            wingGroup.position.set(x, 0, z);
+            wingGroup.rotation.y = rotY;
+
+            const facadeTex = createFacadeTexture({ cols, rows, hasRedTrim, isCorridor });
+            const sideTex = createFacadeTexture({ cols: Math.max(2, Math.floor(cols / 2)), rows, hasRedTrim: false });
+
+            const materials = [
+                new THREE.MeshStandardMaterial({ map: sideTex, roughness: 0.7, clippingPlanes: [floorClipPlane], clipShadows: true }),
+                new THREE.MeshStandardMaterial({ map: sideTex, roughness: 0.7, clippingPlanes: [floorClipPlane], clipShadows: true }),
+                roofMat,
+                roofMat,
+                new THREE.MeshStandardMaterial({ map: facadeTex, roughness: 0.7, clippingPlanes: [floorClipPlane], clipShadows: true }),
+                new THREE.MeshStandardMaterial({ map: facadeTex, roughness: 0.7, clippingPlanes: [floorClipPlane], clipShadows: true })
+            ];
+
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), materials);
+            mesh.position.y = height / 2;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            wingGroup.add(mesh);
+
+            // Interior floor plates & partition walls for realistic cross-section slicing
+            const numFloors = Math.min(6, rows);
+            const floorH = height / numFloors;
+            for (let f = 1; f < numFloors; f++) {
+                const slab = new THREE.Mesh(
+                    new THREE.BoxGeometry(width - 0.3, 0.22, depth - 0.3),
+                    new THREE.MeshStandardMaterial({
+                        color: 0xcbd5e1,
+                        roughness: 0.85,
+                        clippingPlanes: [floorClipPlane]
+                    })
+                );
+                slab.position.y = f * floorH;
+                wingGroup.add(slab);
+            }
+
+            if (addParapet) {
+                const pThick = 0.55;
+                const pHeight = 1.0;
+                const pN = new THREE.Mesh(new THREE.BoxGeometry(width, pHeight, pThick), wallWhiteMat);
+                pN.position.set(0, height + pHeight / 2, -depth / 2 + pThick / 2);
+                const pS = pN.clone();
+                pS.position.z = depth / 2 - pThick / 2;
+                const pE = new THREE.Mesh(new THREE.BoxGeometry(pThick, pHeight, depth), wallWhiteMat);
+                pE.position.set(width / 2 - pThick / 2, height + pHeight / 2, 0);
+                const pW = pE.clone();
+                pW.position.x = -width / 2 + pThick / 2;
+                wingGroup.add(pN, pS, pE, pW);
+            }
+
+            schoolGroup.add(wingGroup);
+            return wingGroup;
+        }
+
+        // --- A. West Main Teaching Block (facing Oxford Road) ---
+        const westBlock = createSchoolWing({
+            x: -21, z: -2, width: 15, depth: 36, height: 24,
+            rotY: -0.12, cols: 4, rows: 6, hasRedTrim: true
+        });
+
+        // Solar panels & HVAC chillers on West Main Block roof
+        for (let r = 0; r < 2; r++) {
+            const solar = new THREE.Mesh(new THREE.BoxGeometry(11, 0.3, 3.6), solarPanelMat);
+            solar.position.set(0, 24.25, -13 + r * 4.5);
+            solar.rotation.x = 0.15;
+            westBlock.add(solar);
+        }
+        for (let i = 0; i < 6; i++) {
+            const hvac = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.1, 2.2), darkTrimMat);
+            hvac.position.set(-3.5 + (i % 2) * 4.2, 24.5, -1 + Math.floor(i / 2) * 4.2);
+            westBlock.add(hvac);
+        }
+
+        // --- B. North Assembly Hall & Classroom Wing (with stepped balconies) ---
+        const northBlock = createSchoolWing({
+            x: 1, z: -22, width: 38, depth: 13, height: 23,
+            rotY: 0, cols: 5, rows: 6, isCorridor: true
+        });
+
+        // Long solar photovoltaic array on North Block roof
+        const northSolar = new THREE.Mesh(new THREE.BoxGeometry(31, 0.35, 5.2), solarPanelMat);
+        northSolar.position.set(0, 23.3, -1.2);
+        northSolar.rotation.x = 0.18;
+        northBlock.add(northSolar);
+
+        // Stepped courtyard-facing gallery tiers on North Wing
+        for (let step = 0; step < 3; step++) {
+            const gallery = new THREE.Mesh(
+                new THREE.BoxGeometry(34, 1.2, 1.6),
+                wallWhiteMat
+            );
+            gallery.position.set(0, 5.5 + step * 3.8, 7.1 - step * 0.35);
+            northBlock.add(gallery);
+        }
+
+        // --- C. Complete North Rear Annex & Elevator Core Penthouse ---
+        createSchoolWing({
+            x: -8, z: -31.5, width: 18, depth: 7.5, height: 21,
+            rotY: 0, cols: 3, rows: 5, hasRedTrim: false
+        });
+
+        const elevatorCore = createSchoolWing({
+            x: 16, z: -26, width: 5.8, depth: 5.8, height: 26.5,
+            rotY: 0, cols: 2, rows: 6
+        });
+
+        // --- D. Northeast Library & Multimedia Block + Sculptural External Staircase Wing ---
+        const libraryBlock = createSchoolWing({
+            x: 24, z: -15, width: 14, depth: 18, height: 23,
+            rotY: 0, cols: 3, rows: 6
+        });
+
+        // Sculptural Open-Flight Staircase Wing adjoining the courtyard
+        const stairWingGroup = new THREE.Group();
+        stairWingGroup.position.set(22.5, 0, -2);
+        schoolGroup.add(stairWingGroup);
+
+        const stairSideWallL = new THREE.Mesh(new THREE.BoxGeometry(1.1, 22, 10), wallWhiteMat);
+        stairSideWallL.position.set(-4.2, 11, 0);
+        const stairSideWallR = new THREE.Mesh(new THREE.BoxGeometry(1.1, 22, 10), wallWhiteMat);
+        stairSideWallR.position.set(4.2, 11, 0);
+        const stairBackWall = new THREE.Mesh(new THREE.BoxGeometry(9.5, 22, 1.2), wallWhiteMat);
+        stairBackWall.position.set(0, 11, 4.4);
+        stairWingGroup.add(stairSideWallL, stairSideWallR, stairBackWall);
+
+        for (let f = 0; f < 5; f++) {
+            const ramp = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.85, 8.2), wallWhiteMat);
+            ramp.position.set(0, 3.2 + f * 3.8, 0);
+            ramp.rotation.x = (f % 2 === 0 ? 0.32 : -0.32);
+            stairWingGroup.add(ramp);
+        }
+
+        // --- E. South Annex Wing (with iconic white rooftop structural pergola frame) ---
+        const southBlock = createSchoolWing({
+            x: 6, z: 27, width: 38, depth: 11.5, height: 21.5,
+            rotY: 0, cols: 5, rows: 5, hasRedTrim: true
+        });
+
+        // Rooftop open white architectural pergola beams on South Annex
+        const pergolaGroup = new THREE.Group();
+        pergolaGroup.position.set(0, 21.5, 0);
+        const beamLength = 34;
+        const railFront = new THREE.Mesh(new THREE.BoxGeometry(beamLength, 0.65, 0.65), wallWhiteMat);
+        railFront.position.set(0, 2.6, -4.6);
+        const railBack = railFront.clone();
+        railBack.position.z = 4.6;
+        pergolaGroup.add(railFront, railBack);
+
+        for (let x = -16; x <= 16; x += 4.5) {
+            const postF = new THREE.Mesh(new THREE.BoxGeometry(0.65, 2.6, 0.65), wallWhiteMat);
+            postF.position.set(x, 1.3, -4.6);
+            const postB = postF.clone();
+            postB.position.z = 4.6;
+            const crossBeam = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.55, 9.8), wallWhiteMat);
+            crossBeam.position.set(x, 2.6, 0);
+            pergolaGroup.add(postF, postB, crossBeam);
+        }
+        southBlock.add(pergolaGroup);
+
+        // --- F. Southwest Corner Tower & Main Gate Entrance Bridge / Zig-Zag Staircase ---
+        const swCornerBlock = createSchoolWing({
+            x: -15, z: 24, width: 9.5, depth: 12, height: 23,
+            rotY: 0, cols: 2, rows: 6
+        });
+
+        // Covered Main Gate Entrance Bridge & Zig-Zag Staircase connecting West & South Wings
+        const gateBridgeGroup = new THREE.Group();
+        gateBridgeGroup.position.set(-18.5, 0, 17.5);
+        schoolGroup.add(gateBridgeGroup);
+
+        const gateCanopy = new THREE.Mesh(new THREE.BoxGeometry(7.5, 1.2, 6.5), wallWhiteMat);
+        gateCanopy.position.set(0, 4.2, 0);
+        gateBridgeGroup.add(gateCanopy);
+
+        for (let s = 0; s < 4; s++) {
+            const flight = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.65, 5.2), wallWhiteMat);
+            flight.position.set(0, 6.5 + s * 3.6, 0);
+            flight.rotation.z = (s % 2 === 0 ? 0.35 : -0.35);
+            gateBridgeGroup.add(flight);
+        }
+
+        // --- G. East Roof Garden Wing & East-South Connecting Wing ---
+        const roofGardenWing = createSchoolWing({
+            x: 35, z: -12, width: 12, depth: 20, height: 15.5,
+            rotY: 0, cols: 3, rows: 4
+        });
+
+        // Green turf & shrubs on Roof Garden
+        const gardenTurf = new THREE.Mesh(
+            new THREE.BoxGeometry(10.6, 0.35, 18.6),
+            new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.9, clippingPlanes: [floorClipPlane] })
+        );
+        gardenTurf.position.set(0, 15.7, 0);
+        roofGardenWing.add(gardenTurf);
+
+        const treeMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.85, clippingPlanes: [floorClipPlane] });
+        for (let t = 0; t < 5; t++) {
+            const bush = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 10), treeMat);
+            bush.position.set(-3 + (t % 2) * 6, 16.5, -6 + t * 3);
+            roofGardenWing.add(bush);
+        }
+
+        // East-South Connecting Wing
+        createSchoolWing({
+            x: 29, z: 12, width: 11, depth: 22, height: 19,
+            rotY: 0, cols: 3, rows: 5
+        });
+
+        // ============================================================================
+        // 5. SPORTS COURTYARD EQUIPMENT & 20-PLAYER HANDBALL MATCH SIMULATION
+        // ============================================================================
+        function createBasketballHoop(x, z, rotY) {
+            const hoopGroup = new THREE.Group();
+            hoopGroup.position.set(x, 0.12, z);
+            hoopGroup.rotation.y = rotY;
+
+            const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.4, 8), darkTrimMat);
+            pole.position.set(0, 1.7, -1.2);
+            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 1.2), darkTrimMat);
+            arm.position.set(0, 3.2, -0.6);
+            const board = new THREE.Mesh(
+                new THREE.BoxGeometry(1.8, 1.1, 0.08),
+                new THREE.MeshStandardMaterial({ color: 0xf8fafc })
+            );
+            board.position.set(0, 3.2, 0);
+            const rim = new THREE.Mesh(
+                new THREE.TorusGeometry(0.26, 0.03, 8, 16),
+                new THREE.MeshStandardMaterial({ color: 0xea580c })
+            );
+            rim.rotation.x = Math.PI / 2;
+            rim.position.set(0, 2.95, 0.3);
+
+            hoopGroup.add(pole, arm, board, rim);
+            schoolGroup.add(hoopGroup);
+        }
+
+        // Four basketball hoops on the twin courts
+        createBasketballHoop(-3.5, -12, 0);
+        createBasketballHoop(10.5, -12, 0);
+        createBasketballHoop(-3.5, 18, Math.PI);
+        createBasketballHoop(10.5, 18, Math.PI);
+
+        // 3D Handball Goals with yellow & black striped posts
+        function createHandballGoal(x, z, rotY) {
+            const goalGroup = new THREE.Group();
+            goalGroup.position.set(x, 0.12, z);
+            goalGroup.rotation.y = rotY;
+
+            const postMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.4 });
+            const stripeMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
+            const netMat = new THREE.MeshBasicMaterial({ color: 0xfef08a, wireframe: true, transparent: true, opacity: 0.4 });
+
+            const gw = 3.6;
+            const gh = 2.2;
+            const gd = 1.2;
+
+            const leftPost = new THREE.Mesh(new THREE.BoxGeometry(0.14, gh, 0.14), postMat);
+            leftPost.position.set(-gw / 2, gh / 2, 0);
+            const rightPost = leftPost.clone();
+            rightPost.position.x = gw / 2;
+            const crossbar = new THREE.Mesh(new THREE.BoxGeometry(gw + 0.14, 0.14, 0.14), postMat);
+            crossbar.position.set(0, gh, 0);
+            goalGroup.add(leftPost, rightPost, crossbar);
+
+            // Black contrast stripes on handball goalposts
+            for (let s = 0.4; s < gh; s += 0.6) {
+                const sL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.22, 0.16), stripeMat);
+                sL.position.set(-gw / 2, s, 0);
+                const sR = sL.clone();
+                sR.position.x = gw / 2;
+                goalGroup.add(sL, sR);
+            }
+
+            const netBox = new THREE.Mesh(new THREE.BoxGeometry(gw - 0.1, gh - 0.1, gd), netMat);
+            netBox.position.set(0, gh / 2, -gd / 2);
+            goalGroup.add(netBox);
+
+            schoolGroup.add(goalGroup);
+        }
+
+        createHandballGoal(4.0, -15.5, 0);
+        createHandballGoal(4.0, 21.5, Math.PI);
+
+        // 20 Children Playing Handball Match (10 Purple Team vs 10 Red Team)
+        const handballPlayers = [];
+        const handballMatchGroup = new THREE.Group();
+        schoolGroup.add(handballMatchGroup);
+
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0xfcd34d, roughness: 0.6 });
+        const hairMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+        const shortsMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.7 });
+        const purpleJerseyMat = new THREE.MeshStandardMaterial({ color: 0x9333ea, roughness: 0.5 }); // Purple Team
+        const redJerseyMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.5 });    // Red Team
+
+        function createChildPlayer(team, role, homeX, homeZ, index) {
+            const playerGroup = new THREE.Group();
+            playerGroup.position.set(homeX, 0.12, homeZ);
+
+            const jerseyMat = team === 'purple' ? purpleJerseyMat : redJerseyMat;
+
+            // Torso (Jersey)
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.58, 0.26), jerseyMat);
+            torso.position.y = 0.82;
+            torso.castShadow = true;
+            playerGroup.add(torso);
+
+            // Shorts
+            const shorts = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.24, 0.25), shortsMat);
+            shorts.position.y = 0.46;
+            playerGroup.add(shorts);
+
+            // Head & Hair
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 10, 10), skinMat);
+            head.position.y = 1.32;
+            head.castShadow = true;
+            playerGroup.add(head);
+
+            const hair = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat);
+            hair.position.y = 1.35;
+            playerGroup.add(hair);
+
+            // Pivoting Arms & Legs for running/throwing animation
+            const leftArm = new THREE.Group();
+            leftArm.position.set(-0.3, 1.05, 0);
+            const armMeshL = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.46, 0.13), skinMat);
+            armMeshL.position.y = -0.18;
+            leftArm.add(armMeshL);
+
+            const rightArm = new THREE.Group();
+            rightArm.position.set(0.3, 1.05, 0);
+            const armMeshR = armMeshL.clone();
+            rightArm.add(armMeshR);
+
+            const leftLeg = new THREE.Group();
+            leftLeg.position.set(-0.13, 0.38, 0);
+            const legMeshL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.4, 0.14), skinMat);
+            legMeshL.position.y = -0.18;
+            leftLeg.add(legMeshL);
+
+            const rightLeg = new THREE.Group();
+            rightLeg.position.set(0.13, 0.38, 0);
+            const legMeshR = legMeshL.clone();
+            rightLeg.add(legMeshR);
+
+            playerGroup.add(leftArm, rightArm, leftLeg, rightLeg);
+
+            // Team Colored Halo Ring on floor for clear aerial visibility
+            const ringGeo = new THREE.RingGeometry(0.34, 0.48, 16);
+            const ringMat = new THREE.MeshBasicMaterial({
+                color: team === 'purple' ? 0xa855f7 : 0xf87171,
+                side: THREE.DoubleSide
+            });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = -Math.PI / 2;
+            ring.position.y = 0.03;
+            playerGroup.add(ring);
+
+            handballMatchGroup.add(playerGroup);
+
+            return {
+                group: playerGroup,
+                team,
+                role,
+                homeX,
+                homeZ,
+                leftArm,
+                rightArm,
+                leftLeg,
+                rightLeg,
+                phase: index * 0.75,
+                speed: 2.2 + (index % 4) * 0.35,
+                roamRadiusX: role === 'gk' ? 1.3 : 3.2,
+                roamRadiusZ: role === 'gk' ? 0.5 : 3.8
+            };
+        }
+
+        // 10 Purple Team Players (North Half & Attacking Transitions)
+        const purplePositions = [
+            { role: 'gk', x: 4.0, z: -14.2 },
+            { role: 'def', x: -2.0, z: -9.5 },
+            { role: 'def', x: 4.0, z: -8.5 },
+            { role: 'def', x: 10.0, z: -9.5 },
+            { role: 'mid', x: -7.5, z: -4.0 },
+            { role: 'mid', x: -1.5, z: -2.5 },
+            { role: 'mid', x: 4.5, z: -1.8 },
+            { role: 'mid', x: 11.5, z: -3.5 },
+            { role: 'fwd', x: 0.5, z: 3.5 },
+            { role: 'fwd', x: 8.5, z: 4.2 }
+        ];
+
+        // 10 Red Team Players (South Half & Attacking Transitions)
+        const redPositions = [
+            { role: 'gk', x: 4.0, z: 20.2 },
+            { role: 'def', x: -2.0, z: 15.2 },
+            { role: 'def', x: 4.0, z: 14.0 },
+            { role: 'def', x: 10.0, z: 15.2 },
+            { role: 'mid', x: -6.5, z: 9.5 },
+            { role: 'mid', x: -0.5, z: 8.2 },
+            { role: 'mid', x: 5.5, z: 7.5 },
+            { role: 'mid', x: 12.0, z: 9.2 },
+            { role: 'fwd', x: -3.0, z: 1.5 },
+            { role: 'fwd', x: 7.5, z: 0.8 }
+        ];
+
+        purplePositions.forEach((p, idx) => {
+            handballPlayers.push(createChildPlayer('purple', p.role, p.x, p.z, idx));
+        });
+
+        redPositions.forEach((p, idx) => {
+            handballPlayers.push(createChildPlayer('red', p.role, p.x, p.z, idx + 10));
+        });
+
+        // Animated Handball & Pass Sequence
+        const handballMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22, 12, 12),
+            new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0xca8a04, emissiveIntensity: 0.25, roughness: 0.3 })
+        );
+        handballMesh.castShadow = true;
+        handballMatchGroup.add(handballMesh);
+
+        const passSequence = [0, 3, 6, 8, 9, 13, 16, 18, 19, 15, 10, 14, 7, 4];
+
+        function updateHandballMatch(timeSec) {
+            const passDuration = 1.4;
+            const passStep = Math.floor(timeSec / passDuration);
+            const passProgress = (timeSec % passDuration) / passDuration;
+
+            const fromPlayerIdx = passSequence[passStep % passSequence.length];
+            const toPlayerIdx = passSequence[(passStep + 1) % passSequence.length];
+
+            handballPlayers.forEach((p, idx) => {
+                const t = timeSec * p.speed + p.phase;
+                const offsetX = Math.sin(t * 0.55) * p.roamRadiusX + Math.cos(t * 0.3) * 0.8;
+                const offsetZ = Math.cos(t * 0.48) * p.roamRadiusZ;
+
+                const nextX = p.homeX + offsetX;
+                const nextZ = p.homeZ + offsetZ;
+
+                const dx = nextX - p.group.position.x;
+                const dz = nextZ - p.group.position.z;
+                if (Math.abs(dx) + Math.abs(dz) > 0.001) {
+                    p.group.rotation.y = Math.atan2(dx, dz);
+                }
+
+                p.group.position.x = nextX;
+                p.group.position.z = nextZ;
+                p.group.position.y = 0.12 + Math.abs(Math.sin(t * 2.5)) * 0.14;
+
+                // Limb swing
+                const swing = Math.sin(t * 2.5) * 0.65;
+                p.leftLeg.rotation.x = swing;
+                p.rightLeg.rotation.x = -swing;
+                p.leftArm.rotation.x = -swing * 0.8;
+
+                // Raise right arm if throwing or receiving the ball
+                if (idx === fromPlayerIdx || idx === toPlayerIdx) {
+                    p.rightArm.rotation.x = -2.4;
+                } else {
+                    p.rightArm.rotation.x = swing * 0.8;
+                }
+            });
+
+            const pFrom = handballPlayers[fromPlayerIdx].group.position;
+            const pTo = handballPlayers[toPlayerIdx].group.position;
+
+            handballMesh.position.lerpVectors(pFrom, pTo, passProgress);
+            handballMesh.position.y = 1.15 + Math.sin(passProgress * Math.PI) * 2.2;
+        }
+
+        // ============================================================================
+        // 6. HOLOGRAPHIC WIREFRAME FLOOR STACK (EAST SIDE)
+        // ============================================================================
+        const holoStackGroup = new THREE.Group();
+        holoStackGroup.position.set(42, 0, 12);
+        schoolGroup.add(holoStackGroup);
+
+        const holoFloorHeight = 3.8;
+        for (let f = 1; f <= 6; f++) {
+            const plateGroup = new THREE.Group();
+            plateGroup.position.y = f * holoFloorHeight;
+
+            const plateMesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(16, 18),
+                new THREE.MeshBasicMaterial({
+                    color: f === 2 ? 0x38bdf8 : 0x94a3b8,
+                    transparent: true,
+                    opacity: f === 2 ? 0.28 : 0.12,
+                    side: THREE.DoubleSide
+                })
+            );
+            plateMesh.rotation.x = -Math.PI / 2;
+            plateGroup.add(plateMesh);
+
+            const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(16, 0.15, 18));
+            const line = new THREE.LineSegments(
+                edges,
+                new THREE.LineBasicMaterial({ color: f === 2 ? 0x38bdf8 : 0xe2e8f0, transparent: true, opacity: 0.85 })
+            );
+            plateGroup.add(line);
+
+            plateGroup.userData = { floorNum: f, plateMesh, line };
+            holoStackGroup.add(plateGroup);
+        }
+
+        // ============================================================================
+        // 7. BILINGUAL POINTS OF INTEREST (POIs) & INTERACTIVE PINS
+        // ============================================================================
+        const pois = [
+            {
+                id: 'main_campus',
+                en: 'Bishop Hall Jubilee School',
+                zh: '何明華會督銀禧中學',
+                floor: '6/F Roof',
+                floorNum: 6,
+                color: '#ef4444',
+                icon: 'fa-school',
+                pos: { x: -20, y: 26.5, z: -2 },
+                camOffset: { x: -55, y: 65, z: 50 },
+                badge: 'Main West Block',
+                desc: 'Founded in 1961, the main teaching block along Oxford Road houses science laboratories, humanities classrooms, and rooftop renewable solar arrays.'
+            },
+            {
+                id: 'courtyard',
+                en: 'Courtyard, Basketball & Handball Courts',
+                zh: '操場、籃球及手球場',
+                floor: 'G/F',
+                floorNum: 1,
+                color: '#f97316',
+                icon: 'fa-futbol',
+                pos: { x: 4, y: 2.5, z: 3 },
+                camOffset: { x: -32, y: 52, z: 62 },
+                badge: 'Live Handball Match (20 Players)',
+                desc: 'Central green sports quadrangle featuring twin basketball courts and an overlapping yellow-lined handball court, currently hosting a 20-student handball match between the Purple and Red teams.'
+            },
+            {
+                id: 'school_hall',
+                en: 'School Hall',
+                zh: '禮堂',
+                floor: '1/F - 3/F',
+                floorNum: 2,
+                color: '#ef4444',
+                icon: 'fa-Instantiate',
+                iconClass: 'fa-solid fa-landmark',
+                pos: { x: 2, y: 17, z: -18 },
+                camOffset: { x: 0, y: 55, z: 48 },
+                badge: 'North Assembly Wing',
+                desc: 'Multi-purpose school auditorium and stepped gallery corridors for morning assemblies, musical performances, and speech day ceremonies.'
+            },
+            {
+                id: 'library_north',
+                en: 'Library & Multimedia Centre',
+                zh: '圖書館及多媒體中心',
+                floor: '4/F - 5/F',
+                floorNum: 5,
+                color: '#f59e0b',
+                iconClass: 'fa-solid fa-book-open',
+                pos: { x: 24, y: 25, z: -15 },
+                camOffset: { x: 55, y: 60, z: 35 },
+                badge: 'Northeast Wing',
+                desc: 'Equipped with digital learning workstations, group discussion pods, and an extensive bilingual collection of academic resources.'
+            },
+            {
+                id: 'south_annex',
+                en: 'STEM & Multimedia Annex',
+                zh: '多媒體及創科教學大樓',
+                floor: '3/F - 5/F',
+                floorNum: 4,
+                color: '#f59e0b',
+                iconClass: 'fa-solid fa-laptop-code',
+                pos: { x: 8, y: 25, z: 27 },
+                camOffset: { x: 18, y: 58, z: 78 },
+                badge: 'South Pergola Wing',
+                desc: 'The southern annex wing crowned with its signature open white architectural pergola frame, housing IT labs, visual arts studios, and student activity rooms.'
+            },
+            {
+                id: 'roof_garden',
+                en: 'Roof Garden',
+                zh: '天台花園',
+                floor: '4/F Roof',
+                floorNum: 4,
+                color: '#10b981',
+                iconClass: 'fa-solid fa-seedling',
+                pos: { x: 35, y: 18, z: -12 },
+                camOffset: { x: 68, y: 50, z: 20 },
+                badge: 'Eco-Campus Zone',
+                desc: 'Elevated green roof terrace supporting environmental education, organic planting beds, and sustainable campus cooling.'
+            },
+            {
+                id: 'main_gate',
+                en: 'Main Entrance Gate',
+                zh: '主校門',
+                floor: 'G/F',
+                floorNum: 1,
+                color: '#ef4444',
+                iconClass: 'fa-solid fa-torii-gate',
+                pos: { x: -24, y: 5, z: 16 },
+                camOffset: { x: -62, y: 36, z: 52 },
+                badge: 'Oxford Road Access',
+                desc: 'Primary campus entrance along Oxford Road featuring the covered bridge canopy and open-flight staircase connecting the West and South wings.'
+            }
+        ];
+
+        const markerElements = [];
+        let labelsVisible = true;
+        let targetCameraPos = null;
+        let targetControlsCenter = null;
+
+        function initPOIMarkersAndDirectory() {
+            const poiListEl = document.getElementById('poi-list');
+            poiListEl.innerHTML = '';
+            labelsContainer.innerHTML = '';
+
+            // Add Oxford Road street label
+            const roadLabelEl = document.createElement('div');
+            roadLabelEl.className = 'road-label';
+            roadLabelEl.innerHTML = 'Oxford Rd 牛津道';
+            labelsContainer.appendChild(roadLabelEl);
+            markerElements.push({
+                el: roadLabelEl,
+                worldPos: new THREE.Vector3(-34, 0.8, 22),
+                isRoad: true
+            });
+
+            pois.forEach((poi) => {
+                // Create 3D Floating HTML Marker
+                const marker = document.createElement('div');
+                marker.className = 'poi-marker';
+                const iconCls = poi.iconClass || `fa-solid ${poi.icon}`;
+                marker.innerHTML = `
+                    <div class="poi-pin" style="background: ${poi.color};">
+                        <i class="${iconCls}"></i>
+                    </div>
+                    <div class="poi-text">
+                        <div class="poi-title-en">${poi.en}</div>
+                        <div class="poi-title-zh">${poi.zh}</div>
+                    </div>
+                `;
+                marker.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectPOI(poi);
+                });
+                labelsContainer.appendChild(marker);
+
+                markerElements.push({
+                    el: marker,
+                    worldPos: new THREE.Vector3(poi.pos.x, poi.pos.y, poi.pos.z),
+                    poi
+                });
+
+                // Create Directory Item
+                const item = document.createElement('button');
+                item.className = 'poi-dir-item w-full text-left px-2.5 py-2 rounded-xl hover:bg-white/10 transition flex items-center justify-between gap-2 group';
+                item.dataset.search = `${poi.en} ${poi.zh} ${poi.badge}`.toLowerCase();
+                item.innerHTML = `
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <span class="w-6 h-6 rounded-lg flex items-center justify-center text-white text-xs flex-shrink-0" style="background: ${poi.color}">
+                            <i class="${iconCls}"></i>
+                        </span>
+                        <div class="truncate">
+                            <div class="text-xs font-semibold text-slate-100 group-hover:text-sky-300 truncate">${poi.en}</div>
+                            <div class="text-[11px] text-slate-400 truncate">${poi.zh}</div>
+                        </div>
+                    </div>
+                    <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 flex-shrink-0">${poi.floor}</span>
+                `;
+                item.addEventListener('click', () => selectPOI(poi));
+                poiListEl.appendChild(item);
+            });
+        }
+
+        function selectPOI(poi) {
+            document.getElementById('info-title-en').textContent = poi.en;
+            document.getElementById('info-title-zh').textContent = poi.zh;
+            document.getElementById('info-badge').textContent = poi.badge;
+            document.getElementById('info-desc').textContent = poi.desc;
+            const iconBox = document.getElementById('info-icon-box');
+            iconBox.style.backgroundColor = poi.color;
+            const iconEl = document.getElementById('info-icon');
+            iconEl.className = poi.iconClass || `fa-solid ${poi.icon}`;
+
+            targetControlsCenter = new THREE.Vector3(poi.pos.x, Math.min(poi.pos.y, 12), poi.pos.z);
+            targetCameraPos = new THREE.Vector3(
+                poi.pos.x + poi.camOffset.x,
+                poi.camOffset.y,
+                poi.pos.z + poi.camOffset.z
+            );
+        }
+
+        initPOIMarkersAndDirectory();
+
+        // ============================================================================
+        // 8. UI CONTROLS & FLOOR SLICER INTERACTION
+        // ============================================================================
+        const floorButtons = document.querySelectorAll('.floor-btn');
+        let currentFloorSelection = 'ALL';
+
+        function setFloorSlice(floorVal) {
+            currentFloorSelection = floorVal;
+            floorButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.floor === String(floorVal));
+            });
+
+            const sliceIndicator = document.getElementById('slice-indicator');
+            if (floorVal === 'ALL') {
+                targetClipConstant = 60;
+                sliceIndicator.textContent = 'Floor View: Full Campus';
+            } else {
+                const fNum = parseInt(floorVal, 10);
+                targetClipConstant = fNum * 3.8 + 0.6;
+                sliceIndicator.textContent = `Cross-Section: ${fNum}/F Level`;
+            }
+
+            // Highlight matching holographic floor plate
+            holoStackGroup.children.forEach(plateGroup => {
+                const isSelected = floorVal !== 'ALL' && plateGroup.userData.floorNum === parseInt(floorVal, 10);
+                plateGroup.userData.plateMesh.material.color.setHex(isSelected ? 0x38bdf8 : 0x94a3b8);
+                plateGroup.userData.plateMesh.material.opacity = isSelected ? 0.36 : 0.12;
+                plateGroup.userData.line.material.color.setHex(isSelected ? 0x38bdf8 : 0xe2e8f0);
+            });
+        }
+
+        floorButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                setFloorSlice(btn.dataset.floor);
+            });
+        });
+
+        document.getElementById('btn-cycle-floor').addEventListener('click', () => {
+            const order = ['1', '2', '3', '4', '5', '6', 'ALL'];
+            const idx = order.indexOf(String(currentFloorSelection));
+            const next = order[(idx + 1) % order.length];
+            setFloorSlice(next);
+        });
+
+        // Search filter
+        const searchInput = document.getElementById('search-input');
+        searchInput.addEventListener('input', (e) => {
+            const q = e.target.value.trim().toLowerCase();
+            document.querySelectorAll('.poi-dir-item').forEach(item => {
+                item.style.display = item.dataset.search.includes(q) ? 'flex' : 'none';
+            });
+        });
+
+        // Toggle Directory Menu
+        const dirPanel = document.getElementById('directory-panel');
+        document.getElementById('btn-toggle-menu').addEventListener('click', () => {
+            dirPanel.classList.toggle('hidden');
+        });
+
+        document.getElementById('btn-focus-search').addEventListener('click', () => {
+            dirPanel.classList.remove('hidden');
+            searchInput.focus();
+        });
+
+        // Reset Camera View
+        document.getElementById('btn-reset-cam').addEventListener('click', () => {
+            setFloorSlice('ALL');
+            targetControlsCenter = new THREE.Vector3(3, 8, 5);
+            targetCameraPos = new THREE.Vector3(-48, 82, 96);
+        });
+
+        // Cancel smooth camera fly-to if user manually drags orbit controls
+        controls.addEventListener('start', () => {
+            targetCameraPos = null;
+            targetControlsCenter = null;
+        });
+
+        // Toggle Holographic Floor Stack
+        document.getElementById('btn-toggle-wireframe').addEventListener('click', () => {
+            holoStackGroup.visible = !holoStackGroup.visible;
+        });
+
+        // Toggle 3D Labels
+        document.getElementById('btn-toggle-labels').addEventListener('click', () => {
+            labelsVisible = !labelsVisible;
+            labelsContainer.style.display = labelsVisible ? 'block' : 'none';
+        });
+
+        // Cycle Sun & Lighting Presets
+        let sunPreset = 0;
+        document.getElementById('btn-sun-angle').addEventListener('click', () => {
+            sunPreset = (sunPreset + 1) % 3;
+            if (sunPreset === 0) {
+                // Daylight
+                dirLight.position.set(-65, 110, 75);
+                dirLight.color.setHex(0xfffbeb);
+                scene.background.setHex(0xcbd5e1);
+                scene.fog.color.setHex(0xcbd5e1);
+            } else if (sunPreset === 1) {
+                // Golden Sunset
+                dirLight.position.set(-110, 55, -40);
+                dirLight.color.setHex(0xfdba74);
+                scene.background.setHex(0x94a3b8);
+                scene.fog.color.setHex(0x94a3b8);
+            } else {
+                // Crisp High Noon
+                dirLight.position.set(25, 135, 35);
+                dirLight.color.setHex(0xffffff);
+                scene.background.setHex(0xdbeafe);
+                scene.fog.color.setHex(0xdbeafe);
+            }
+        });
+
+        // ============================================================================
+        // 9. 3D-TO-2D LABEL PROJECTION & ANIMATION LOOP
+        // ============================================================================
+        function updateLabelsProjection() {
+            if (!labelsVisible) return;
+
+            const halfW = window.innerWidth / 2;
+            const halfH = window.innerHeight / 2;
+
+            markerElements.forEach(item => {
+                const pos = item.worldPos.clone();
+                pos.project(camera);
+
+                if (pos.z > 1) {
+                    item.el.style.display = 'none';
+                    return;
+                }
+
+                const x = (pos.x * halfW) + halfW;
+                const y = -(pos.y * halfH) + halfH;
+
+                item.el.style.display = 'flex';
+                item.el.style.left = `${x}px`;
+                item.el.style.top = `${y}px`;
+                item.el.style.zIndex = Math.floor((1 - pos.z) * 1000);
+            });
+        }
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+
+            const timeSec = (now || 0) * 0.001;
+
+            // Smooth floor cross-section transition
+            floorClipPlane.constant += (targetClipConstant - floorClipPlane.constant) * 0.12;
+
+            // Smooth camera fly-to interpolation
+            if (targetCameraPos && targetControlsCenter) {
+                camera.position.lerp(targetCameraPos, 0.07);
+                controls.target.lerp(targetControlsCenter, 0.07);
+                if (camera.position.distanceTo(targetCameraPos) < 0.35) {
+                    targetCameraPos = null;
+                    targetControlsCenter = null;
+                }
+            }
+
+            // Update 20-player handball match & ball trajectory
+            updateHandballMatch(timeSec);
+
+            controls.update();
+            updateLabelsProjection();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        window.onload = function () {
+            animate(0);
+        };
+    </script>
+</body>
+</html>
